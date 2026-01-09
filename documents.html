@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="de">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Handwerker Planer - Dokumente</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+
+<body>
+    <div class="sidebar">
+        <div class="logo">
+            <i class="fas fa-hammer"></i> PlanerPro
+        </div>
+        <ul class="nav-links">
+            <li><a href="index.html"><i class="fas fa-th-large"></i> Dashboard</a></li>
+            <li><a href="planning.html"><i class="fas fa-calendar-alt"></i> Einsatzplanung</a></li>
+            <li><a href="employees.html"><i class="fas fa-users"></i> Mitarbeiter</a></li>
+            <li><a href="documents.html" class="active"><i class="fas fa-folder-open"></i> Dokumente</a></li>
+
+            <li><a href="settings.html"><i class="fas fa-cog"></i> Einstellungen</a></li>
+        </ul>
+    </div>
+
+    <div class="main-content">
+        <header>
+            <h1>Dokumente</h1>
+            <p>Zentraler Speicher für Pläne, Verträge und Nachweise.</p>
+        </header>
+
+        <div class="card">
+            <div style="padding: 15px; border-bottom: 1px solid #f0f0f0;">
+                <input type="text" id="doc-search" placeholder="Dokument suchen..."
+                    style="width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font-family: inherit;"
+                    onkeyup="filterDocuments()">
+            </div>
+            <table style="width: 100%; text-align: left; border-collapse: collapse;">
+                <thead>
+                    <tr style="border-bottom: 2px solid #f0f0f0;">
+                        <th style="padding: 15px; width: 40px;"></th>
+                        <th style="padding: 15px; color: var(--text-muted);">Name</th>
+                        <th style="padding: 15px; color: var(--text-muted);">Typ</th>
+                        <th style="padding: 15px; color: var(--text-muted);">Datum</th>
+                        <th style="padding: 15px; color: var(--text-muted); text-align: right;">Aktion</th>
+                    </tr>
+                </thead>
+                <tbody id="doc-list-body">
+                    <!-- Dynamic Content -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <div id="doc-viewer-modal" class="a4-preview-overlay" style="display: none;">
+        <div class="print-controls">
+            <button class="btn-print-action" onclick="window.print()">
+                <i class="fas fa-print"></i> Drucken
+            </button>
+            <button class="btn-close-preview" onclick="closeViewer()">
+                <i class="fas fa-times"></i> Schließen
+            </button>
+        </div>
+        <div id="viewer-content" class="a4-page">
+            <!-- Content will be injected here -->
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="supabase-client.js"></script>
+    <script src="script.js"></script>
+    <script>
+        let allDocs = []; // Store globally for filtering
+
+        window.addEventListener('load', () => {
+            if (window.checkAuth) window.checkAuth();
+            loadDesktopDocuments();
+        });
+
+        async function loadDesktopDocuments() {
+            const tbody = document.getElementById('doc-list-body');
+            if (!tbody) return;
+
+            tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:20px;">Lade Dokumente...</td></tr>';
+
+            let docs = [];
+
+            // Fetch from Supabase
+            if (window.supa) {
+                try {
+                    const { data, error } = await window.supa
+                        .from('documents')
+                        .select('*')
+                        .order('date', { ascending: false });
+
+                    if (data) docs = data;
+                } catch (err) {
+                    console.error('Fetch docs error:', err);
+                }
+            }
+
+            // Merge Local (Offline) Docs
+            const localDocs = JSON.parse(localStorage.getItem('offline_docs') || '[]');
+            docs = [...docs, ...localDocs];
+
+            // Deduplicate logic if needed (skip for now)
+            docs.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+            allDocs = docs; // Store for search
+            renderDocuments(allDocs);
+        }
+
+        function renderDocuments(docs) {
+            const tbody = document.getElementById('doc-list-body');
+            tbody.innerHTML = '';
+
+            if (docs.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:20px; color: #999;">Keine Dokumente gefunden.</td></tr>';
+                return;
+            }
+
+            docs.forEach((doc, index) => {
+                const dateObj = new Date(doc.date);
+                const dateStr = dateObj.toLocaleDateString('de-DE');
+                // Use original index from allDocs to ensure correct view
+                const originalIndex = allDocs.indexOf(doc);
+
+                const tr = document.createElement('tr');
+                tr.style.borderBottom = '1px solid #f9f9f9';
+                tr.innerHTML = `
+                    <td style="padding: 15px; color: var(--accent-color);"><i class="fas fa-file-invoice"></i></td>
+                    <td style="padding: 15px; font-weight: 500; cursor: pointer;" onclick="viewDocument(${originalIndex})">
+                        ${doc.title} - ${doc.order_name}
+                    </td>
+                    <td style="padding: 15px; color: var(--text-muted);">Arbeitsnachweis</td>
+                    <td style="padding: 15px; color: var(--text-muted);">${dateStr}</td>
+                    <td style="padding: 15px; text-align: right;">
+                        <button style="border: none; background: none; color: var(--primary-color); cursor: pointer; margin-right: 10px;" onclick="viewDocument(${originalIndex})">
+                            <i class="fas fa-eye"></i>
+                        </button>
+                        <button style="border: none; background: none; color: var(--text-muted); cursor: pointer;" onclick="alert('Download Funktion folgt...')">
+                            <i class="fas fa-download"></i>
+                        </button>
+                    </td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
+
+        function filterDocuments() {
+            const query = document.getElementById('doc-search').value.toLowerCase();
+            const filtered = allDocs.filter(doc => {
+                const searchStr = (doc.title + ' ' + doc.order_name + ' ' + doc.date).toLowerCase();
+                return searchStr.includes(query);
+            });
+            renderDocuments(filtered);
+        }
+
+        function viewDocument(index) {
+            const doc = allDocs[index];
+            if (!doc) return;
+
+            const modal = document.getElementById('doc-viewer-modal');
+            const content = document.getElementById('viewer-content');
+
+            // Extract Data safely
+            const c = doc.content || {};
+
+            // New: Check for PDF Data inside content
+            if (c.pdf_data) {
+                // Use an iframe to display the PDF
+                content.innerHTML = `
+                    <div style="width: 100%; height: 80vh;">
+                        <iframe src="${c.pdf_data}" width="100%" height="100%" style="border: none;"></iframe>
+                    </div>
+                `;
+                modal.style.display = 'flex';
+                return;
+            }
+
+            const sigCust = c.signatures?.customer || '';
+            const sigTech = c.signatures?.technician || '';
+
+            content.innerHTML = `
+                <div class="a4-header">
+                    <div>
+                        <div class="a4-title">Arbeitsnachweis</div>
+                        <div style="margin-top:5px; font-weight:600;">Handwerker GmbH & Co. KG</div>
+                    </div>
+                    <div class="a4-meta">
+                        Datum: ${new Date(doc.date).toLocaleDateString('de-DE')}<br>
+                        Dokument-Nr: ${doc.id || Math.floor(Math.random() * 10000)}
+                    </div>
+                </div>
+
+                <div class="a4-section">
+                    <span class="a4-label">Auftrag / Tätigkeit</span>
+                    <div class="a4-value" style="font-weight: bold;">${doc.order_name}</div>
+                </div>
+
+                <div class="a4-section">
+                    <span class="a4-label">Kunde / Projekt</span>
+                    <div class="a4-value">${doc.title}</div>
+                </div>
+
+                <div class="a4-section" style="border: 1px solid #eee; padding: 10px; background: #f9f9f9;">
+                    <span class="a4-label">Beschreibung der durchgeführten Arbeiten</span>
+                    <div class="a4-value" style="min-height: 100px;">${c.desc || '-'}</div>
+                </div>
+
+                <div class="a4-section">
+                    <span class="a4-label">Verwendetes Material</span>
+                    <div class="a4-value">${c.materials || '-'}</div>
+                </div>
+
+                <div class="a4-section">
+                    <span class="a4-label">Arbeitszeit</span>
+                    <div class="a4-value">${c.time || '-'} Stunden</div>
+                </div>
+
+                <div class="a4-signatures">
+                    <div class="a4-sig-box">
+                        <div style="height: 80px; display: flex; align-items: flex-end;">
+                            ${sigCust ? `<img src="${sigCust}" class="a4-sig-img" alt="Unterschrift Kunde">` : '<div style="color:#ccc; font-style:italic; padding-bottom:5px;">Keine Unterschrift</div>'}
+                        </div>
+                        <div class="a4-label" style="border-top: 1px solid #333; margin-top:5px;">Unterschrift Auftraggeber</div>
+                    </div>
+                    
+                    <div class="a4-sig-box">
+                         <div style="height: 80px; display: flex; align-items: flex-end;">
+                            ${sigTech ? `<img src="${sigTech}" class="a4-sig-img" alt="Unterschrift Techniker">` : '<div style="color:#ccc; font-style:italic; padding-bottom:5px;">Keine Unterschrift</div>'}
+                        </div>
+                        <div class="a4-label" style="border-top: 1px solid #333; margin-top:5px;">Unterschrift Handwerker</div>
+                    </div>
+                </div>
+            `;
+
+            modal.style.display = 'flex';
+        }
+
+        function closeViewer() {
+            document.getElementById('doc-viewer-modal').style.display = 'none';
+        }
+    </script>
+</body>
+
+</html>
